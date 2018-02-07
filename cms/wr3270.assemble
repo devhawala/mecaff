@@ -1,0 +1,81 @@
+*
+* WR3270      - MECAFF 3270 console write module
+*
+* This file is part of the MECAFF-API for VM/370 R6 "SixPack".
+*
+* This entry point writes the passed C-string (parameter 1) to a
+* 3270 console with the DISPW function, allowing to write max. 1680
+* characters (21 lines x 80 characters) at once.
+*
+*
+* This software is provided "as is" in the hope that it will be useful,
+* with no promise, commitment or even warranty (explicit or implicit)
+* to be suited or usable for any particular purpose.
+* Using this software is at your own risk!
+*
+* Written by Dr. Hans-Walter Latz, Berlin (Germany), 2011,2012
+* Released to the public domain.
+*
+         REGEQU
+*
+         ENTRY WR3270
+WR3270   DS 0H
+*
+* save registers and establish adressability via R12
+         STM R14,R12,12(R13)
+         LR R12,R15
+         USING WR3270,R12
+*
+* load string start address (parameter 1) into R6
+         L R6,0(R1)
+*
+* setup register pair R2/R3 with increment/limit for BXLE
+         LA R3,1680(R6)       limit: 21 lines X 80 chars
+         LA R2,1              increment: 1
+*
+* setup compare pointer R4 with string start
+         LR R4,R6
+*
+* loop over R4 looking for C string end (null-char) up to limit (R3)
+* to compute the string length
+WRX1     DS 0H
+         CLI 0(R4),X'00'      compare with C-string-end marker
+         BE WRX2              found, so stop searching
+         BXLE R4,R2,WRX1      try next char, if not at limit
+WRX2     DS 0H
+*
+* string-end (null-char or limit) is reached, compute string-length
+* into R4 as R4 (string end) - R6 (string start) and store all
+* necessary data into parameter area for DISPW(DMSGIO)
+         SR R4,R6
+         STH R4,NUMB          the output length
+         ST R6,GIODTA         the output buffer
+*
+* invoke: DISPW (6),BYTES=<VARIABLE-LENGTH>
+         LA R1,GIODTA         load parameter address into R1
+         L R15,=V(DMSGIO)     load (external) DMSGIO address into R15
+         ST R13,RG13SAV       save R13 and ...
+         SR R13,R13           clear R13 to tell DMSGIO: no EDCB
+         BALR R14,R15         and invoke DMSGIO
+         L R13,RG13SAV        restore R13
+         SR R15,R15           set our returncode to 0
+         L R14,12(R13)        restore R14 from save area
+         LM R0,R12,20(R13)    and restore the remaining registers
+         BR R14               done: return to caller
+*
+         LTORG
+*
+* save space for R13 when invoking DMSGIO
+RG13SAV  DC 1F'0'
+*
+* data fields pointed to by our GIODTA fields
+LINE     DC H'0'
+NUMB     DC H'0'
+FLAGS    DC X'00'
+*
+* parameters for DISPW(DMSGIO)
+GIODTA   DC A(0)
+         DC A(LINE)
+         DC A(NUMB)
+         DC A(FLAGS)
+         END

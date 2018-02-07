@@ -1,0 +1,284 @@
+PGPL3270 TITLE 'PUT/GET ASYNCHRONOUS FOR 3270 WITH DIAG58'
+         SPACE
+*
+* Module based on:
+*
+*      http://ftp.nluug.nl/networking/kermit/extra/cm2full.asm
+*
+* provided by MFNOEL as 'cm2full' for 'check' functionality for KICKS
+* (i.e. write 3270 panels and continue working on the host, checking
+* (poLling) if fullscreen input is available).
+*
+* Adapted for use in MECAFF's API to provide a partially compatible
+* API for both DIAG58 and MECAFF console (by HLA).
+* Modifications for MECAFF-API:
+*  -> 1. parameter is passed as fullword (instead of pointer to short)
+*  -> function 0 does not write (clear) the screen
+*
+*
+*        THIS SUBROUTINE PROVIDES A REASONABLY SYSTEM INDEPENDENT
+*        INTERFACE TO PROBLEM PROGRAMS FOR 3270-STYLE I/O.
+*
+*        ATTRIBUTES: NOT REENTRANT.  SERIALLY REUSABLE IF INITIALIZE
+*              AND TERMINATE CALLS ARE PAIRED.
+*
+*        ENTRY CONDITIONS:
+*              R15 --> ENTRY POINT
+*              R14 = RETURN ADDRESS
+*              R13 --> OS/STYLE SAVE AREA
+*              R1 --> OS/STYLE PARAMETER LIST.
+*        PARAMETERS:
+*           0(R1)  = F'FUNCTION CODE'
+*           4(R1)  --> BUFFER
+*           8(R1)  --> H'LENGTH' OF BUFFER.
+*           12(R1) --> HALFWORD RETURNED LENGTH FOR READ OPERATIONS.
+*        FUNCTION CODES:
+*           0 -- GET CONTROL OF SCREEN
+*           1 -- PERFORM ERASE WRITE OF BUFFER DATA
+*           2 -- PERFORM NORMAL WRITE OF BUFFER DATA
+*           3 -- PERFORM READ MODIFIED INTO BUFFER AFTER WAITING
+*             FOR ATTENTION
+*           4 -- PERFORM READ BUFFER INTO BUFFER
+*           5 -- RELINQUISH CONTROL
+*           6 -- CHECK FOR READ READY (RETURNS STAX ECB ADDRESS)
+*           7 -- PERFORM ERASE WRITE ALTERNATE OF BUFFER DATA
+*           8 -- ARM TIMEOUT HANDLER
+*           9 -- WAIT FOR ATTN WITH TIMEOUT
+*          10 -- DISARM TIMEOUT HANDLER
+*
+*        OPERATING NOTES:
+*
+*        FUNCTION 0 MUST BE ISSUED FIRST.  FUNCTION 5 SHOULD BE ISSUED
+*        BEFORE THE FULL SCREEN APPLICATION TERMINATES.
+*        AFTER WRITING A WCC TO UNLOCK THE KEYBOARD, FUNCTION 3 SHOULD
+*        BE ISSUED TO WAIT FOR ATTENTION.  AN I/O ERROR MIGHT OCCUR
+*        IF AN ATTENTION IS PENDING AND THE NEXT I/O IS A
+*        WRITE.
+*        THIS ROUTINE USES A STAX EXIT.  THE APPLICATION SHOULD NOT
+*        ISSUE THE STAX MACRO BETWEEN INITIALIZING AND TERMINATING THIS
+*        INTERFACE.
+*        RETURN CODE 4 CAN INDICATE:
+*          1.  NOT PROPERLY INITIALIZED.
+*          2.  SCREEN STOLEN BY THE OPERATING SYSTEM (ISSUE ERASE WRITE
+*              GET IT BACK:  THIS IS A CMS-DEPENDENT CONVENTION).
+*          3.  NON FULL-SCREEN INPUT PENDING.  USE STANDARD INPUT
+*              ROUTINES TO ACQUIRE IT.
+*
+*        RETURN CODES:
+*        0 -- SUCCESSFUL COMPLETION
+*        4 -- SCREEN NOT FORMATTED
+*        8 -- I/O ERROR ON DEVICE.
+*        12 -- ILLEGAL FUNCTION
+*        16 -- DEVICE NOT OPERATIONAL OR OF INCORRECT TYPE
+*
+PGPL3270 CSECT
+         SAVE  (14,12),,*
+         LR    R12,R15
+         USING PGPL3270,R12
+         LM    R8,R11,0(R1)        R8 = FUNCTION CODE
+*                                  R9 --> BUFFER
+*                                  R10 --> BUFFER LENGTH
+*                                  R11 --> RETURNED LENGTH FOR READ
+         SSM   *+1                 DISABLE FOR INTERRUPTS
+         LA    R7,12               SET ILLEGAL FUNCTION
+         CL    R8,=A(FUNCMAX)      TEST FOR LEGAL FUNCTION
+         BH    RETURN              WORST FEARS REALIZED
+         SLL   R8,2                MAKE BRANCHABLE
+         B     *+4(R8)             AND BRANCH
+FUNC0    B     INIT                0 -- INITIALIZE
+         B     EWRITE              1 -- ERASE WRITE
+         B     WRITE               2 -- NORMAL WRITE
+         B     READM               3 -- READ MODIFIED
+         B     READB               4 -- READ BUFFER
+         B     TERMIN              5 -- TERMINATE
+         B     READR               6 -- CHECK FOR READ READY
+         B     EWRITEA             7 -- ERASE WRITE ALTERNATE
+         B     TMRARM              8 -- ARM TIMEOUT HANDLER
+         B     TMRWAIT             9 -- WAIT FOR ATTN WITH TIMEOUT
+         B     TMRRESET            10 -- DISARM TIMEOUT HANDLER
+*
+FUNCMAX  EQU   (*-FUNC0)/4-1
+         SPACE
+*        RETURN TO CALLER.  RC IN R7
+         SPACE
+RETURN   ST    R7,16(,R13)         SET RETURN CODE IN R15 POSITION
+         RETURN (14,12)            RETURN TO CALLER
+         EJECT
+*
+*        ESTABLISH CONTROL.
+*        1.  CHECK CONSOLE TYPE.
+*        2.  DISABLE FOR ALL INTERRUPTS.
+*        3.  TAKE CONTROL OF ATTENTIONS VIA STAX.
+*        4.  ISSUE ERASE WRITE TO CLEAR SCREEN AND PUT CONSOLE IN
+*            FULL SCREEN MODE.
+*
+INIT     LA    R7,16               GET TENTATIVE RETURN CODE
+         L     R1,=F'-1'           VIRTUAL CONSOLE DIAGNOSE
+         DIAG  R1,R2,X'24'         DO IT
+         BNZ   RETURN              DON'T ALLOW ANYTHING SLEAZY
+         CLM   R3,B'0100',=X'04'   ACCEPT ONLY 3277 OR 3278 TYPES
+         BE    TYPEOK
+         CLM   R3,B'0100',=X'01'   ACCEPT ONLY 3277 OR 3278 TYPES
+         BNE   RETURN
+TYPEOK   STCM  R1,B'0011',CONSADDR SAVE CONSOLE ADDRESS
+         SSM   *+1                 DISABLE FOR INTERRUPTS
+         MVI   STAXECB,0           CLEAR ECB
+         STAX  CATCHATN            PLAN TO CATCH ATTENTIONS
+         LA    R7,0                set RC = 0
+         B     RETURN              return
+*
+*        RELINQUISH CONTROL.
+*        1.  CLEAR CONSOLE ADDRESS
+*        2.  CANCEL STAX
+*
+TERMIN   XC    CONSADDR,CONSADDR   CLEAR CONSOLE ADDRESS
+         STAX  ,                   CANCEL STAX
+         SR    R7,R7               SET RETURN CODE
+         B     RETURN
+         EJECT
+*
+*        WRITE, READ BUFFER, OR ERASE WRITE.
+*        1.  --> CORRECT CCW.
+*        2.  FILL IN ADDRESSES AND DO I/O
+*
+EWRITE   LA    R1,EWCCW            --> ERASE WRITE CCW
+         MVI   5(R1),X'80'         MAKE IT ERASE WRITE
+         B     FILLIN              GO FILL IN THE DATA
+EWRITEA  LA    R1,EWCCW            --> ERASE WRITE CCW
+         MVI   5(R1),X'C0'         MAKE IT ERASE WRITE ALTERNATE
+         B     FILLIN              GO FILL IN THE DATA
+WRITE    LA    R1,WCCW             --> NORMAL WRITE CCW
+         B     FILLIN              GO FILL IN THE DATA
+READB    LA    R1,RBCCW            --> READ BUFFER CCW
+         B     FILLIN              GO FILL IN THE DATA
+*
+*        READ READY
+*        --   RETURN STAX ECB ADDRESS
+*
+READR    SSM   =X'FF'              OPEN INTERRUPT WINDOW A MOMENT
+*        SSM   *+1                 THEN CLOSE IT AGAIN
+         LA    R7,STAXECB          RETURN STAX ECB ADDRESS
+         B     RETURN
+*
+*        READ MODIFIED
+*        1.  WAIT FOR ATTENTION.
+*        2.  --> CORRECT CCW.
+*        3.  FILL IN ADDRESSES AND DO I/O
+*
+READM    MVC   DEBUG1,STAXECB      SAVE ECB STATE FOR DEBUGGING
+         WAIT  1,ECB=STAXECB       WAIT FOR ATTN
+         MVC   DEBUG2,X'44'        SAVE CSW STATUS FOR DEBUGGING
+         LA    R1,RMCCW            --> READ MODIFIED CCW
+         B     FILLIN              GO FILL IN THE DATA
+         EJECT
+**
+** TIMEOUT HANDLING
+**
+TMRARM   ST    R9,TMRINTVL         STORE P1 AS INT IN WAIT INTERVAL
+         MVI   TMRECB,0            RESET OUR ECB
+         STIMER REAL,TMRHNDL,BINTVL=TMRINTVL
+         SR    R7,R7               CLEAR RETURN CODE
+         B     RETURN
+*
+TMRWAIT  WAIT  ECB=TMRECB          WAIT FOR TIMEOUT OR ATTN
+TMRRESET STIMER REAL,BINTVL=TMRNONE
+         SR    R7,R7               CLEAR RETURN CODE
+         B     RETURN
+**
+** END TIMEOUT HANDLING
+**
+*
+*        FILL IN DATA FOR READ OR WRITE OPERATIONS PRIOR TO DIAGNOSE
+*
+FILLIN   STCM  R9,B'0111',1(R1)    MOVE 3 BYTE ADDRESS INTO CCW
+         MVC   6(2,R1),0(R10)      MOVE 2 BYTE LENGTH INTO CCW
+*
+*        PERFORM DIAGNOSE X'58' I/O
+*
+DIAG58   LR    R2,R1               SAVE CCW REGISTER
+         LH    R3,CONSADDR         PICK UP CONSOLE ADDRESS
+         LA    R7,4                ASSUME NOT IN CONTROL
+         LTR   R3,R3               ARE WE?
+         BZ    RETURN              NO.
+         WAITT ,                   YES.  LET CONSOLE QUIESCE.
+         LA    R4,10               RETRY 10 TIMES (ARBITRARY) IF BUSY
+         LA    R7,8                ASSUME ERROR
+DO58     DIAG  R2,R3,X'58'         PERFORM THE DIAGNOSE
+         BZ    WAITEND             OPERATION STARTED
+         BM    CHECKEND            CCW STORED
+         BO    RETURN              CC=3: RETURN ERROR.
+         SSM   =X'FE'              CC=2: RETRY UP TO 10 TIMES
+         SSM   *+1                 (OPEN INTERRUPT WINDOW: IT MIGHT BE
+         BCT   R4,DO58             INTERRUPT PENDING ON ANOTHER CUU)
+         B     RETURN              RETURN ERROR IF RETRY EXHAUSTED
+WAITEND  TIO   0(R3)               WAIT FOR OPERATION TO END
+         BO    RETURN              CC=3:  RETURN ERROR
+         BZ    RETURN              CC=0 IS IMPOSSIBLE!
+         BP    WAITEND             LOOP ON BUSY.  WILL NOT SPIN.
+         TM    X'44',X'04'         INCLUDES DEVICE END?
+         BNO   WAITEND             NO.  KEEP WAITING
+CHECKEND LA    R7,4                ASSUME SCREEN STOLEN
+         CLI   X'44',X'8E'         WAS IT?
+         BE    RETURN              YES.  DONE
+         LA    R7,8                ASSUME I/O ERROR
+         MVI   STAXECB,X'40'       PSEUDO PREPOST THE ECB
+         TM    X'44',X'80'         ATTENTION STRUCK?
+         BO    RETURN              YES.  RETURN ERROR.
+         MVI   STAXECB,0           NO.  CLEAR ECB FOR EVENTUAL WAIT
+         TM    X'44',X'F3'         ANY FUNNY BITS ON?
+         BNZ   RETURN              YES.  ERROR
+         CLI   X'45',0             ANY CHANNEL STATUS?
+         BNE   RETURN              YES.  ERROR
+         SR    R7,R7               OTHERWISE, CALL IT A SUCCESS
+         CH    R8,=Y(4*3)          IS IT READ MODIFIED?
+         BL    RETURN              RETURN IF LESS
+         CH    R8,=Y(4*4)          HOW ABOUT READ BUFFER?
+         BH    RETURN              RETURN IF MORE
+         LH    R1,X'46'            PICK UP CSW RESIDUAL COUNT
+         LNR   R1,R1               COMPLEMENT IT
+         AH    R1,0(,R10)          ADD ORIGINAL COUNT
+         STH   R1,0(,R11)          AND STORE DIFFERENCE (BYTES MOVED)
+         B     RETURN              AND GET OUT OF HERE
+         EJECT
+*
+*        STAX ROUTINE (SIMPLICITY ITSELF
+*
+CATCHATN SAVE  (14,12)
+*
+*
+         DROP  ,                   NO ADDRESSABILITY REALLY
+         LR    R12,R15             GET SOME
+         USING CATCHATN,R12
+         POST  STAXECB             INDICATE SOMETHING
+         POST  TMRECB            STOP WAITING FOR TIMEOUT
+         RETURN (14,12)
+         EJECT
+*
+*        STIMER EVENT ROITINE FOR TIMEOUT HANDLING
+*
+TMRHNDL  SAVE  (14,12)
+*
+*
+         DROP  ,                   NO ADDRESSABILITY REALLY
+         LR    R12,R15             GET SOME
+         USING TMRHNDL,R12
+         POST  TMRECB            STOP WAITING FOR TIMEOUT
+         RETURN (14,12)
+         EJECT
+*        STATIC DATA
+         SPACE
+CCWALIGN DS    0D                  CCWS...
+EWCCW    DC    X'2900000020800000' ERASE WRITE CCW
+WCCW     DC    X'2900000020000000' WRITE CCW
+RMCCW    DC    X'2A00000020800000' READ MODIFIED CCW
+RBCCW    DC    X'2A00000020000000' READ BUFFER CCW
+STAXECB  DC    F'0'                ECB FOR ATTENTION
+CONSADDR DC    H'0'                CONSOLE ADDRESS
+TMRECB   DC    F'0'                ECB FOR TIMEOUT HANDLER
+TMRINTVL DC    F'0'                TIMEOUT INTERVAL IN 1/100 SECS
+TMRNONE  DC    F'0'                DUMMY FOR 'NO WAITING TIME'
+DEBUG1   DC    X'FF'               PLACE TO SAVE DEBUGGING INFO
+DEBUG2   DC    X'FFFF'             PLACE TO SAVE DEBUGGING INFO
+         LTORG
+         REGEQU
+         END

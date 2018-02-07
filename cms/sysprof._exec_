@@ -1,0 +1,49 @@
+&CONTROL OFF NOMSG
+* Load bREXX into resident memory and establish it as the DMSREX command.
+ 
+SET LDRTBLS 64
+ 
+* Remember that DMSINS has placed some commands on the stack when this EXEC
+* is invoked!  So we must be careful in our use of the console stack!
+EXECUTIL QSTACK
+&READ VARS &NUMLINES
+&I = 1
+&LOOP -SAVE &NUMLINES
+   &READ VARS &S1&I &S2&I &S3&I &S4&I &S5&I &S6&I &S7&I &S8&I &S9&I &S10&I &S11&I &S12&I
+   &I = &I + 1
+   -SAVE
+ 
+* Load the native GCC runtime library into memory.
+GLOBAL TXTLIB GCCLIB
+RESLIB LOAD GCCLIB (NAME GCCLIB
+&IF &RETCODE NE 0 &TYPE SYSPROF Error loading GCCLIB into memory!
+&IF &RETCODE NE 0 &GOTO -DONE
+ 
+* Now get the address of the GCC runtime library and store it in NUCON.
+RESLIB LIST GCCLIB (STACK
+&IF &RETCODE NE 0 &TYPE SYSPROF Error getting GCCLIB memory address!
+&IF &RETCODE NE 0 &GOTO -DONE
+&READ VARS &NAME &ADDR &PAGE
+CP DISCARD STORE 4FC &ADDR
+ 
+* Now load bREXX into memory.
+RESLIB LOAD BREXX (NAME DMSREX
+&IF &RETCODE NE 0 &TYPE SYSPROF Error loading bREXX into memory!
+ 
+* Finally, restore the lines that were on the stack when we were invoked.
+-DONE
+&I = 1
+&LOOP -RESTORE &NUMLINES
+   &STACK FIFO &S1&I &S2&I &S3&I &S4&I &S5&I &S6&I &S7&I &S8&I &S9&I &S10&I &S11&I &S12&I
+   &I = &I + 1
+   -RESTORE
+ 
+* MAINT 19D has the CMS Help system.
+ACCESS 19D U/S
+ 
+* Execute additional system profile if available
+STATE SYSPROFX EXEC *
+&IF &RETCODE EQ 0 EXEC SYSPROFX
+ 
+* done
+&EXIT

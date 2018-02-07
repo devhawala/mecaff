@@ -1,0 +1,130 @@
+*
+* (MECAFF-) IND$FILE mapping for VISTA TN3270 with all default settings:
+*
+*   Hercules: 819/1047 for CODEPAGE (ASCII/EBCDIC)
+*
+*   VISTA:    Windows (ANSI 1252)  for 'File Transfer Setting'
+*             United States        for 'Screen Code Page'
+*
+ 
+* line 40 .. 4F
+42 BA
+43 BC
+44 B8
+45 B9
+46 BB
+47 BD
+48 BF
+49 DD
+4A 43
+4F 6A
+ 
+* line 50 .. 5F
+51 CB
+52 CC
+53 CD
+54 CA
+55 CF
+56 DA
+57 DB
+58 CE
+59 B7
+ 
+* line 60 .. 6F
+62 78
+63 8A
+64 76
+65 77
+66 80
+67 8B
+68 8D
+69 A0
+6A 47
+ 
+* line 70 .. 7F
+70 EE
+71 8F
+72 90
+73 9A
+74 8E
+75 9C
+76 9D
+77 9E
+78 9B
+ 
+* line 80 .. 8F
+80 B0
+8A 53
+8B 71
+8C DC
+8D FD
+8E FE
+8F 59
+ 
+* line 90 .. 9F
+90 58
+9A 52
+9B 70
+9C BE
+9D 68 * bug reported by mfnoel (error: cedille <-> comma), old line was: 9D 6B
+9E 8C
+9F 45
+ 
+* line A0 .. AF
+A0 65
+AA 42
+AB 75
+AC 9F
+AD 4A
+AE B6
+AF 56
+ 
+* line B0 .. BF
+B0 54
+B1 44
+B2 46
+B3 67
+B4 51
+B5 48
+B6 66
+B7 72
+B8 73
+B9 74
+BA B5
+BB 49
+BC 57
+BD 4F
+BE 64
+BF AF
+ 
+* line C0 .. CF
+CA 55
+CB EA
+CC EC
+CD DE
+CE DF
+CF EB
+ 
+* line D0 .. DF
+DA 69
+DB FB
+DC FC
+DD EF
+DE FA
+DF E1 * y-trema :: host: lowercase <-> term: uppercase
+ 
+* line E0 .. EF
+E1 ED
+EA 62
+EB AC
+EC AE
+ED AA
+EE AB
+EF AD
+ 
+* line F0 .. FE
+FA 63
+FB B3
+FC B4
+FD B1
+FE B2

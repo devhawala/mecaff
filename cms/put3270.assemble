@@ -1,0 +1,161 @@
+PUT3270  CSECT
+         REGEQU
+***********************************************************************
+*                                                                     *
+*  PUT3270 Callable routine                                           *
+*                                                                     *
+*  This routine will issue DIAG58 write commands as specified to      *
+*  display a buffer full of data on the virtual console in full       *
+*  screen mode.  The caller can choose between first clearing the     *
+*  display and then choose between four types of write commands.      *
+*                                                                     *
+*  The caller should ensure that register 1 contains the address of   *
+*  a fullword that contains the address of the input parameters.      *
+*  The DSECT describing this area is at the end of this source.       *
+*  Below is a description of the 4 words:                             *
+*                                                                     *
+*    Word 0 - Clear screen control. Set the control to:               *
+*             F'0' - do not issue DIAG58 clear screen                 *
+*             F'1' - issue DIAG58 clear screen prior to a write       *
+*    Word 1 - Write command flags, set this word to one of the        *
+*             following values:                                       *
+*             X'00000000' - WRITE                                     *
+*             X'00000080' - ERASE WRITE                               *
+*             X'000000C0' - ERASE WRITE ALTERNATE                     *
+*             X'00000020' - WRITE STRUCTURED FIELD                    *
+*                                                                     *
+*             C callers can use Word 1 as an int and set one of the   *
+*             following values:                                       *
+*             0           - WRITE                                     *
+*             128         - ERASE WRITE                               *
+*             192         - ERASE WRITE ALTERNATE                     *
+*             32          - WRITE STRUCTURED FIELD                    *
+*                                                                     *
+*    Word 2 - Points to the address of the buffer containing the      *
+*             3270 data stream to be written to the device.           *
+*    Word 3 - Contains the number of bytes to be written to the       *
+*             device.                                                 *
+*                                                                     *
+*    Example calling sequence:                                        *
+*             LA    R1,=A(PARMS)            R1->A(input PARMS)        *
+*             L     R15,=V(PUT3270)         -> put3270 diag58 rtn     *
+*             BALR  R14,R15                 Go display the data       *
+*             LTR   R15,R15                 Any errors?               *
+*             BNZ   ERRORS                  Yes, handle the error     *
+*                                                                     *
+*                                                                     *
+*      AT ENTRY R1 POINTS TO FULLWORD CONTAINING ADDRESS OF PARMS
+*      AT ENTRY R13 POINTS TO 18-WORD OS STYLE SAVE AREA
+*
+*      PARMS    DS    0F
+*      CTL      DS    F            Clear screen control
+*      CMD      DS    F            CCW command flags, per DIAG58 spec
+*      BUFFADDR DS    A            Addr of output data buffer
+*      BUFFLEN  DS    F            Length of output data
+*
+*
+         STM   R14,R12,12(R13)
+         LR    R12,R15
+         USING PUT3270,R12
+         ST    R13,SA+4
+         LA    R13,SA
+*
+         L     R5,0(,R1)           Load input params address
+         USING PARMS,R5
+*
+         LM    R8,R10,DVCINFO      Load prior device info
+         LTR   R8,R8               Already have device info?
+         BNZ   CLEAR               Y, dont get it again
+         SR    R8,R8               Clear
+         BCTR  R8,R0               Set -1
+         DIAG  8,10,X'24'          Get vcons device info
+         STM   R8,R10,DVCINFO      Save device info
+*
+CLEAR    EQU   *
+         SSM   =X'00'              Disable
+*
+         CLC   CTL,=F'1'           Clear screen requested?
+         BNE   WRITE               No, skip it
+         LA    R6,CLEARCCW         -> clear CCW
+         BAL   R11,CRTIO           Issue DIAG58
+         BNZ   RETURN12            Something went wrong
+         CLC   BUFFLEN,=F'0'       No write length?
+         BE    RETURN              Yes, it was clear screen only
+*
+WRITE    EQU   *                   Setup the write CCW
+         MVC   WRITECCW+1(3),BUFFADDR+1   Move buffer addr to CCW
+         MVC   WRITECCW+6(2),BUFFLEN+2    Move data len to CCW
+         MVC   WRITECCW+5(1),CMD+3  Move CCW control flags byte
+         LA    R6,WRITECCW          -> write CCW
+         BAL   R11,CRTIO            Issue DIAG58
+         BNZ   RETURN12             Something went wrong
+         B     RETURN               Exit with write completed
+*
+CRTIO    EQU   *
+*
+*    Reset any pending interruptions
+*
+CLRPEND  EQU   *
+         TIO   0(R8)
+         BC    6,CLRPEND            Loop through all prior interrupts
+         BC    1,NOTOPER
+*
+*    Issue DIAG 58
+*
+DIAG     EQU   *
+         DIAG  R6,R8,X'58'
+         BC    4,CHECKCSW          Error, check CSW
+         BC    1,NOTOPER           Device not operational
+*
+TIO1     EQU   *
+         TIO   0(R8)               Wait for end of the i/o
+         BC    2,TIO1              Busy - keep waiting
+         BC    1,NOTOPER           Device not operational
+*
+CHECKCSW EQU   *
+         MVC   CSW,64(0)           Get local copy of CSW
+         CLI   CSW+5,X'00'         Some problem with the channel?
+         BNE   NOTOPER             Yes
+         CLI   CSW+4,X'0C'         Did we get CE+DE?
+         BNE   NOTOPER             No, something went wrong
+         SR    R15,R15             CC = ZERO
+         BR    R11                 EXIT
+*
+*    All errors here
+*
+NOTOPER  EQU   *
+         LTR   R11,R11             CC = NOT ZERO
+         BR    R11
+*
+RETURN   EQU   *
+         SR    R15,R15             Set RC 0 if success
+         B     EXIT
+*
+RETURN12 EQU   *
+         LA    R15,12              Set RC=12 if failure
+*
+EXIT     EQU   *
+         SSM   =X'FF'              Re-enable
+         L     R13,4(,R13)
+         ST    R15,16(,R13)        Save RC in R15 slot
+         LM    R14,R12,12(R13)
+         BR    R14
+*
+*
+         DS    0D
+WRITECCW DC    X'29',AL3(0),X'20',X'00',H'1'
+CLEARCCW DC    X'19',AL3(0),X'60',X'FF',H'1'
+         CCW   X'03',*-*,X'20',1
+*---------------------------------------------------------------------
+CSW      DS    D                     CSW copy
+SA       DS    18F                   Save area
+DVCINFO  DC    3F'0'                 Device info from DIAG 24
+BLANKS   DS    CL20' '
+         LTORG
+*
+PARMS    DSECT
+CTL      DS    F                     Clear screen control
+CMD      DS    F                     Write command flags
+BUFFADDR DS    A                     -> output buffer address
+BUFFLEN  DS    F                     Number of bytes to write
+         END

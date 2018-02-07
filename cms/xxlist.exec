@@ -1,0 +1,76 @@
+/* REXX script to run EE as XLIST */
+ 
+signal off error
+trace off
+ 
+/*
+** get the pattern to list
+*/
+Parse upper arg ifn ift ifm rest
+fid = ifn||' '||ift||' '||ifm
+ 
+/*
+** find the first R/W disk
+*/
+rwdisk = '$'
+Address system 'EXECUTIL QDISK *'
+Do while queued() > 0
+  Parse pull . . . . . . dmode . dletter drest
+  if rwdisk = '$' & dmode = 'R/W' Then rwdisk = dletter
+End
+ 
+If rwdisk = '$' Then Do
+  Say '** XXLIST error : no R/W minidisk accessed'
+  Exit 24
+End
+ 
+ 
+/*
+** find a unique EXEC filename to use for XXLIST actions
+*/
+i = 0
+found = 0
+Do while found = 0 & i < 99
+  i = i + 1
+  execfn = '$$XLS'||i
+  Address system 'STATE' execfn 'EXEC *'
+  If rc = 28 Then Do
+    Address system 'STATE' execfn 'XLISTRES *'
+    If rc = 28 Then found = 1
+  End
+End
+ 
+If i > 99 Then Do
+  Say '** XXLIST error : cannot find free temp exec name on R/W disk'
+  Exit 24
+End
+ 
+/*
+** do the XLIST loop: XLIST >> execfn >> XLIST >> execfn ...
+** while XLIST returns 2044 (execute commands exec)
+*/
+xlistdone = 0
+xlmode = 'XLISTS'
+cmdtail =  execfn||' EXEC '||rwdisk||' FROMREXX'
+Do while xlistdone = 0
+  cmd = 'EE '||fid||' ( '||xlmode||' '||cmdtail
+  Address system cmd
+  eerc = rc
+  If eerc = 2044
+    Then Address system 'EXEC' execfn
+    Else xlistdone = 1
+  xlmode = 'XLISTR'
+End
+ 
+/*
+** cleanup and leave
+*/
+candfile = execfn||' EXEC '||rwdisk
+Address system 'STATE' candfile
+If rc = 0 Then Address system 'ERASE' candfile
+candfile = execfn||' XLISTRES '||rwdisk
+Address system 'STATE' candfile
+If rc = 0 Then Address system 'ERASE' candfile
+ 
+/* done */
+Exit eerc

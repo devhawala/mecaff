@@ -1,0 +1,31 @@
+CHK3270  TITLE 'Check if the console is a 3270'
+*
+* Check code taken from CM2FULL provided by mfnoel.
+*
+* Returns 1 (true) in R15 if CON is a 3270 and 0 (false) if not.
+*
+CHK3270  CSECT
+*
+         STM   R14,R12,12(R13)     establish ...
+         LR    R12,R15               ...
+         USING CHK3270,R12             ... adressability
+         LA    R15,0               set returncode to false
+         L     R1,=F'-1'           get the console ...
+         DIAG  R1,R2,X'24'           ... information
+         BNZ   RETURN              abort if there is a problem
+         CLM   R3,B'0100',=X'04'   is it 3277 or 3278?
+         BE    IS3270              ... yes
+         CLM   R3,B'0100',=X'01'   is it 3277 or 3278?
+         BE    IS3270              ... yes
+         B     RETURN              ... no: keep false as returncode
+*
+IS3270   LA    R15,1               set returncode to true
+*
+RETURN   L     R14,12(R13)
+         LM    R0,R12,20(R13)
+         BR    R14
+*
+         LTORG
+         REGEQU
+*
+         END

@@ -1,0 +1,52 @@
+************************************************************
+** EE settings
+**
+ 
+* define screen preferences
+prefix right
+scale below
+gapfill dot
+ 
+* uncomment next 2 lines for using "movehere" by pf07/pf08
+* pf 7 pgup movehere
+* pf 8 pgdown movehere
+ 
+* define the infolines (telling the default PF settings)
+infolines clear
+infolines add \
+  02=RNxt \
+  03=Quit \
+  04=Srch \
+  06=SpltJ \
+  07=PgUp \
+  08=PgDown \
+  10=PInput \
+  11=Clear \
+  12=Recall
+ 
+* changed for REXX: mixed case
+ftdefaults exec     V 72 M
+ 
+ 
+************************************************************
+** FSLIST settings
+**
+pf fslist 13 help
+* pf fslist 11 sort ts
+* pf fslist 23 sort name type mode
+* infolines fslist add ....
+prefix fslist on
+ 
+ 
+************************************************************
+** FSVIEW settings
+**
+pf fsview 13 help
+* infolines fsview add ....
+ 
+ 
+************************************************************
+** FSHELP settings
+**
+pf fshelp 13 help fshelp
+* infolines fshelp add ....

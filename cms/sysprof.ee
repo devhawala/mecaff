@@ -1,0 +1,8 @@
+* define default filetypes
+ftdefaults c        V 80 M
+ftdefaults h        V 80 M
+ftdefaults ee       V 64 M
+ftdefaults exec     V 72 U
+ftdefaults assemble F 80 U 72
+fttabdefaults assemble 10 16 31 72
+ftdefaults pli      F 80 U 72

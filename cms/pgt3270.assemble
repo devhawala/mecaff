@@ -1,0 +1,126 @@
+PGT3270  TITLE 'WRITE AND READ TO 3270 SCREEN IN ONE STEP'
+PGT3270  CSECT
+         REGEQU
+*      AT ENTRY R1 POINTS TO ADDRESS OF PARMS
+*
+*      PARMS    DS    0F
+*      BUFFADDR DS    A            ADDRESS OF INPUT BUFFER
+*      BUFFLENA DS    A            ADDR OF 2-BYTE LEN OF INPUT BUFFER
+*      OBUFADDR DS    A            ADDRESS OF OUTPUT BUFFER
+*      OBUFLEN  DS    F            4-BYTE LEN OF OUTPUT BUFFER
+*
+*
+         STM   R14,R12,12(R13)
+         LR    R3,R15
+         USING PGT3270,R3
+         ST    R13,SA+4
+         LA    R13,SA
+*
+         SSM   =X'00'
+         L     R1,0(,R1)            -> input parms
+*---------------------------------------------------------------------
+* SETUP CCWS
+*----------------
+* SET 3270 WRITE CCW PARAMETERS
+         USING PARMS,R1
+         MVC   WRITECCW+1(3),OBUFADDR+1   MOVE BUFFER ADDR TO CCW
+         MVC   WRITECCW+6(2),OBUFLEN+2    MOVE DATA LEN TO CCW
+         DROP  R1
+*----------------
+* SET 3270 READ CCW PARAMETERS
+         LM    R4,R5,0(R1)         LOAD PTRS TO INPUT PARMS
+*                                   R4 -> INPUT BUFFER
+*                                   R5 -> INPUT BUFFER LEN (HALFWORD)
+         STCM  R4,7,READCCW+1      PLUG BUFFER ADDR INTO CCW
+         MVC   READCCW+6(2),0(R5)  MOVE BUFFER LEN TO CCW
+*
+*---------------------------------------------------------------------
+WAIT1ST  EQU   *
+         LA    R1,=CL8'CONWAIT'    WAIT FOR CONSOLE I/O
+         SVC   202
+         DC    AL4(RETURN)
+*---------------------------------------------------------------------
+GETADDR  EQU   *                   GET CONSOLE ADDR
+         SR    R8,R8
+         BCTR  R8,R0
+         DIAG  8,10,X'24'
+         STM   R8,R10,DVCINFO       SAVE DEVICE INFO
+*---------------------------------------------------------------------
+SETINT   EQU   *            ESTABLISH RTN TO HANDLE ATTN INTERUPT
+         STH   R8,HNDINT+24
+         CNOP  0,4
+HNDINT   HNDINT SET,(TUBE,INTRPT,01F,ASAP)
+*--------------------------------------------------------------------
+* SEND THE OUTPUT BUFFER
+         LA    R6,WRITECCW
+         L     R8,DVCINFO
+         DIAG  R6,R8,X'58'         WRITE TO THE SCREEN
+TIOW     TIO   0(R8)               WAIT FOR WRITE COMPLETE
+         BC    4,WAIT         Exit TIO loop on CE+DE
+         BC    7,TIOW
+*--------------------------------------------------------------------
+WAIT     EQU   *                   WAIT FOR ATTENTION INTERRUPT
+         WAITD TUBE
+*---------------------------------------------------------------------
+READ     EQU   *       CLEAR INTERUPT ROUTINE
+         HNDINT CLR,(TUBE)
+*
+RETURN   EQU   *
+         LH    R1,READCCW+6         GET REQUESTED READ LENGTH
+         SH    R1,CSW+6             LESS RESIDUAL COUNT IN CSW
+         STH   R1,0(,R5)            STORE ACTUAL READ LEN IN CALLER'S
+*                                    2-BYTE LENGTH AREA
+*
+QUIT     EQU   *
+         SSM   =X'FF'
+         L     R13,4(,R13)
+         LM    R14,12,12(R13)
+         XR    R15,R15
+         BR    R14
+SA       DS    9D
+*
+*---------------------------------------------------------------------
+INTRPT   EQU   *
+         USING INTRPT,15
+         STM   0,15,INTSAVE
+         USING INTRPT,3
+         LR    R3,R15
+         DROP  15
+         LA    R6,READCCW
+         L     R8,DVCINFO
+         DIAG  R6,R8,X'58'         NOW READ FROM THE SCREEN
+TIO      TIO   0(R8)               WAIT FOR READ COMPLETE
+         BC    7,TIO
+         MVC   CSW,64(0)           SAVE A COPY OF THE CSW
+         LM    0,15,INTSAVE
+         LA    15,0
+         BR    14
+*
+INTSAVE  DC    16F'0'
+INT15    DC    F'0'
+REGSAVE  DC    F'0'
+*---------------------------------------------------------------------
+CC0      EQU   8
+CC1      EQU   4
+CC2      EQU   2
+CC3      EQU   1
+*
+         DS    0D
+WRITECCW DC    X'29',AL3(0),X'20',X'80',H'1'
+READCCW  DC    X'2A',AL3(0),X'20',X'80',H'1920'
+CSW      DS    D
+*---------------------------------------------------------------------
+DVCINFO  DC    3F'0'
+BLANKS   DC    20C' '
+*
+*
+* STRUCTURE OF THE PARAMETER LIST
+*
+PARMS    DSECT
+BUFFADDR DS    A
+BUFFLENA DS    A
+OBUFADDR DS    A
+OBUFLEN  DS    H
+*
+*
+         END

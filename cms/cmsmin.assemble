@@ -1,0 +1,251 @@
+***********************************************************************
+*                                                                     *
+* CMSMIN IS A SUBSET OF THE CMSSYS IMPLEMENTATION FOR THE GCCLIB.     *
+*                                                                     *
+* IT ALLOWS TO LINK MECAFF-BASED 3270 FULLSCREEN PROGRAMS AGAINST     *
+* THE PDPCLIB INSTEAD OF THE RESIDENT NATIVE GCCLIB.                  *
+* (@@CMSCMD IS NEEDED ONLY FOR THE DEMO PROGRAM 'FSRDTEST')           *
+*                                                                     *
+* CMSMIN CONTAINS C INTERFACES TO CMS SYSTEM SERVICES:                *
+*  @@WRTERM                                                           *
+*  @@RDTERM                                                           *
+*  @@CMSCMD                                                           *
+*                                                                     *
+* THE IMPLEMENTATIONS OF THESE ENTRY POINTS WERE COPIED FROM THE      *
+* "CMSSYS ASSEMBLE" OF THE GCCLIB IMPLEMENTATION, SO THE ORIGINAL     *
+* COPYRIGHT APPLIES:                                                  *
+*                                                                     *
+* ROBERT O'HARA, REDMOND WASHINGTON, JULY 2010.                       *
+* RELEASED TO THE PUBLIC DOMAIN.                                      *
+*                                                                     *
+***********************************************************************
+         EJECT
+*
+         ENTRY @@WRTERM
+***********************************************************************
+* @@WRTERM  ENTRY POINT                                               *
+* DISPLAY A LINE ON THE TERMINAL.                                     *
+*                                                                     *
+* SYNTAX IS:                                                          *
+*    INT __WRTERM(CHAR * LINE, INT EDIT)                              *
+* WHERE:                                                              *
+*    LINE      IS A POINTER TO THE LINE TO BE DISPLAYED.  THE LINE    *
+*              MAY CONTAIN EMBEDDED NEWLINE CHARACTERS (X'15') WHICH  *
+*              ARE HONORED.  NORMALLY THE LINE SHOULD END WITH A      *
+*              NEWLINE CHARACTER, UNLESS A SUBSEQUENT CALL IS TO      *
+*              CONTINUE WRITING ON THE SAME LINE.  THE STRING MUST BE *
+*              NULL TERMINATED.  THE MAXIMUM NUMBER OF CHARACTERS TO  *
+*              BE DISPLAYED IS 130; A LINE LONGER THAN THIS IS        *
+*              TRUNCATED WITHOUT WARNING.                             *
+*    EDIT      IS 1 IF TRAILING BLANKS ARE TO BE REMOVED AND A        *
+*              NEWLINE CHARACTER ADDED TO THE END OF THE LINE; 0 IF   *
+*              NOT.                                                   *
+* RETURNS:                                                            *
+*    (INT)     RETURN CODE FROM THE WRTERM FUNCTION, ALWAYS 0.        *
+***********************************************************************
+@@WRTERM DS    0H
+         STM   R14,R12,12(R13)
+         LR    R12,R15
+         USING @@WRTERM,R12   ESTABLISH ADDRESSABILITY
+         L     R6,0(R1)       R6 IS START OF LINE TO DISPLAY
+         L     R7,4(R1)       GET EDIT SETTING
+         LA    R3,129(R6)     LAST POSSIBLE CHAR TO DISPLAY
+         LA    R2,1           LOOP INCREMENT
+         LR    R4,R6          START OF LINE TO DISPLAY
+WRTERM1  DS    0H
+* LOOP TO DETERMINE THE LENGTH OF THE LINE TO DISPLAY.
+         CLI   0(R4),X'00'    LOOK FOR END OF THE C STRING
+         BE    WRTERM2        FOUND IT
+         BXLE  R4,R2,WRTERM1  KEEP LOOPING IF NOT
+WRTERM2  DS    0H
+         SR    R4,R6          LENGTH OF LINE TO DISPLAY
+* USE WRTERM TO DISPLAY THE LINE.
+         LTR   R7,R7          EDIT THE LINE?
+         BZ    WRTERM3        NO
+         WRTERM (6),(4),EDIT=YES
+         B     WRTERM4
+WRTERM3  DS    0H
+         WRTERM (6),(4),EDIT=NO
+WRTERM4  DS    0H
+         L     R14,12(R13)    RESTORE OUR RETURN ADDRESS
+         LM    R0,R12,20(R13) RESTORE THE REGISTERS
+         BR    R14            RETURN TO OUR CALLER
+         LTORG
+         EJECT
+*
+         ENTRY @@RDTERM
+***********************************************************************
+* @@RDTERM  ENTRY POINT                                               *
+* READ A LINE FROM THE TERMINAL.                                      *
+*                                                                     *
+* SYNTAX IS:                                                          *
+*    INT __RDTERM(CHAR * LINE)                                        *
+* WHERE:                                                              *
+*    LINE      IS A POINTER TO THE 131-CHARACTER BUFFER INTO WHICH    *
+*              THE LINE IS READ.  THIS LINE WILL BE TERMINATED WITH A *
+*              NULL CHARACTER, FORMING A C STRING.                    *
+* RETURNS:                                                            *
+*    (INT)     LENGTH OF THE STRING PLACED IN THE BUFFER.             *
+***********************************************************************
+@@RDTERM DS    0H
+         STM   R14,R12,12(R13)
+         LR    R12,R15
+         USING @@RDTERM,R12   ESTABLISH ADDRESSABILITY
+         L     R2,0(R1)       GET BUFFER ADDRESS
+* USE RDTERM TO READ THE LINE.
+         RDTERM (2),EDIT=NO
+         LR    R15,R0         GET NUMBER OF BYTES READ AS RETURN CODE
+         SR    R1,R1
+         STC   R1,0(R15,R2)   PLACE NULL CHARACTER AT END OF LINE
+         L     R14,12(R13)    RESTORE OUR RETURN ADDRESS
+         LM    R0,R12,20(R13) RESTORE THE REGISTERS
+         BR    R14            RETURN TO OUR CALLER
+         LTORG
+         EJECT
+*
+         ENTRY @@CMSCMD
+***********************************************************************
+* @@CMSCMD  ENTRY POINT                                               *
+* INVOKE A CMS SYSTEM SERVICE OR COMMAND.  BOTH A STANDARD AND        *
+* EXTENDED PARAMETER LIST ARE PASSED TO THE COMMAND.                  *
+*                                                                     *
+* SYNTAX IS:                                                          *
+*    INT __CMSCMD(CHAR * CMDLINE, INT CALLTYPE)                       *
+* WHERE:                                                              *
+*    CMDLINE   IS A POINTER TO THE COMMAND LINE TO BE EXECUTED.       *
+*    CALLTYPE  SPECIFIES THE TYPE OF CALL:                            *
+*               0   INDICATES THE COMMAND IS TO BE INVOKED AS A       *
+*                   FUNCTION.                                         *
+*               1   INDICATES THE COMMAND IS INVOKED AS IF FROM A CMS *
+*                   EXEC.  FOR EXAMPLE, IF YOU WANT TO INVOKE ABC     *
+*                   EXEC YOU MUST                                     *
+*                   CODE 'EXEC ABC'.                                  *
+*              11   INDICATES THE COMMAND IS INVOKED AS IF TYPED BY   *
+*                   THE USER AT THE TERMINAL.                         *
+* RETURNS:                                                            *
+*    (INT)     RETURN CODE FROM THE INVOKED SERVICE OR COMMAND.       *
+***********************************************************************
+@@CMSCMD DS    0H
+         STM   R14,R12,12(R13)
+         LR    R12,R15
+         USING @@CMSCMD,R12   ESTABLISH ADDRESSABILITY
+         L     R4,0(R1)       GET THE COMMAND LINE STRING
+         LA    R3,LINELEN(R4) MAX POSSIBLE LENGTH OF COMMAND LINE
+         LA    R2,1           LOOP INCREMENT
+CMD1     DS    0H             FIND END OF COMMAND LINE STRING
+         CLI   0(R4),X'00'    LOOK FOR C TERMINATOR
+         BE    CMD2           FOUND IT
+         BXLE  R4,R2,CMD1     KEEP LOOPING IF NOT
+CMD2     DS    0H
+         ST    R4,EPARGE      STORE END OF ARGUMENT LIST IN EPLIST
+         SR    R3,R3
+         ST    R3,EPARGB      ZERO OUT THIS FIELD
+         LR    R3,R4          END OF ARGUMENT LIST
+         BCTR  R3,0           POINT TO LAST CHARACTER OF ARG LIST
+         L     R4,0(R1)       START SCANNING ARGUMENTS HERE
+         LA    R5,TOKPL       TOKENS GO HERE
+         MVI   TOKPL,C' '     SET TOKPL TO BLANKS
+         MVC   TOKPL+1(255),TOKPL
+         ST    R5,EPCMD       THIS WILL BE THE COMMAND NAME
+* ---------------------------------------------------------------------
+* LOOP THROUGH THE WORDS IN ARGSTRNG, COPY THEM INTO ARGVARGS, WHILE
+* BUILDING UP THE ARRAY OF POINTERS.  IN THIS SECTION:
+*    R5  IS THE WHERE IN TOKPL NEXT TOKEN GOES
+*    R4  IS THE NEXT BYTE IN CMDLINE TO SCAN
+*    R3  IS THE LAST CHARACTER OF CMDLINE
+*    R2  IS THE SCAN INCREMENT
+* AT THIS POINT WE ARE AT THE BEGINNING OF THE NEXT ARGUMENT.
+* ---------------------------------------------------------------------
+TOKSCAN  DS    0H
+         LR    R6,R4          SAVE START OF THIS TOKEN
+TOKSCAN1 DS    0H
+         CLI   0(R4),C' '     LOOK FOR END OF THIS ARGUMENT
+         BE    TOKSCAN2       FOUND IT
+         CLI   0(R4),C'('     A PAREN COULD END IT TOO
+         BE    TOKSCAN2       FOUND IT
+         CLI   0(R4),C')'     SO COULD A CLOSE PAREN
+         BE    TOKSCAN2       FOUND IT
+         BXLE  R4,R2,TOKSCAN1 KEEP LOOPING IF NOT
+TOKSCAN2 DS    0H             WE ARE AT THE END OF THE ARGUMENT
+         LR    R7,R4          POINT TO 1ST BYTE AFTER ARGUMENT
+         SR    R7,R6          GET LENGTH OF THIS ARGUMENT
+         BNZ   TOKSCAN3       IF LEN > 0, COPY IT
+         LA    R4,1(R4)       THIS ARG IS A PAREN, MUST BUMP SCAN PTR
+         B     TOKSCAN4
+TOKSCAN3 DS    0H
+         BCTR  R7,0           LESS 1 FOR EX OF MVC
+TOKSCAN4 DS    0H
+         EX    R7,COPYTOK     COPY ARGUMENT TO TOKPL
+         EX    R7,XLATTOK     TRANSLATE ARGUMENT TO UPPERCASE
+         LA    R5,8(R5)       BUMP TOKEN POINTER
+NEXTTOK  DS    0H             SCAN PAST ANY BLANKS BEFORE NEXT ARG
+         CLI   0(R4),C' '     LOOK FOR START OF NEXT ARGUMENT
+         BNE   NEXTTOK2       FOUND START OF ARG OR END OF LIST
+         BXLE  R4,R2,NEXTTOK  KEEP LOOPING IF NOT
+NEXTTOK2 DS    0H
+         CLI   0(R4),X'00'    HAVE WE REACHED THE END?
+         BE    TOKFENCE       YES, NEXT ADD THE FENCE
+         CLI   0(R4),C'('     BUT WAIT, WE COULD BE AT A PAREN
+         BE    NEXTTOK3
+         CLI   0(R4),C')'     OR A CLOSE PAREN
+         BE    NEXTTOK3
+         L     R7,EPARGB
+         LTR   R7,R7
+         BNZ   TOKSCAN        WE'VE ALREADY FOUND FIRST ARGUMENT
+         ST    R6,EPARGB      STORE START OF FIRST ARGUMENT
+         B     TOKSCAN        NO, GO PROCESS NEXT ARGUMENT
+NEXTTOK3 DS    0H
+         LR    R6,R4          SAVE START OF THIS ARGUMENT
+         LA    R4,1(R4)       POINT TO CHARACTER AFTER PAREN
+         B     TOKSCAN2       PROCESS THE PAREN AS AN ARGUMENT
+COPYTOK  MVC   0(0,R5),0(R6)
+XLATTOK  TR    0(0,R5),UPPER
+TOKFENCE DS    0H
+         MVC   0(8,R5),=X'FFFFFFFFFFFFFFFF'
+* ---------------------------------------------------------------------
+* AT LAST WE ISSUE THE CMS COMMAND AND RETURN TO OUR CALLER.
+* ---------------------------------------------------------------------
+         LR    R2,R1          SAVE C PARAMETER LIST
+         LA    R1,TOKPL       SET THE TOKENIZED PLIST
+         LA    R0,EPL         SET THE EXTENDED PLIST
+         ICM   R1,8,7(R2)     GET THE CALLTYPE FLAG BYTE
+         SVC   202            CALL THE COMMAND
+         DC    AL4(*+4)       ERROR ADDRESS
+         L     R14,12(R13)    RESTORE OUR RETURN ADDRESS
+         LM    R0,R12,20(R13) RESTORE THE REGISTERS
+         BR    R14            RETURN TO OUR CALLER
+         LTORG
+         EJECT
+*
+TOKPL    DS    32D            CMS TOKENIZED PLIST
+EPL      DS    0F             CMS EXTENDED PARAMETER LIST
+EPCMD    DS    A
+EPARGB   DS    A
+EPARGE   DS    A
+EPUWORD  DC    F'0'
+EPARGS   DS    CL130          256 IN VM/SP & LATER
+         LTORG
+         EJECT
+*
+UPPER    DS    0H             UPPERCASE TRANSLATION TABLE
+*                             COPIED FROM DMSCRD
+         DC    X'000102030405060708090A0B0C0D0E0F'
+         DC    X'101112131415161718191A1B1C1D1E1F'
+         DC    X'202122232425262728292A2B2C2D2E2F'
+         DC    X'303132333435363738393A3B3C3D3E3F'
+         DC    X'404142434445464748494A4B4C4D4E4F'
+         DC    X'505152535455565758595A5B5C5D5E5F'
+         DC    X'606162636465666768696A6B6C6D6E6F'
+         DC    X'707172737475767778797A7B7C7D7E7F'
+         DC    X'80C1C2C3C4C5C6C7C8C98A8B8C8D8E8F'
+         DC    X'90D1D2D3D4D5D6D7D8D99A9B9C9D9E9F'
+         DC    X'A0A1E2E3E4E5E6E7E8E9AAABACADAEAF'
+         DC    X'B0B1B2B3B4B5B6B7B8B9BABBBCBDBEBF'
+         DC    X'C0C1C2C3C4C5C6C7C8C9CACBCCCDCECF'
+         DC    X'D0D1D2D3D4D5D6D7D8D9DADBDCDDDEDF'
+         DC    X'E0E1E2E3E4E5E6E7E8E9EAEBECEDEEEF'
+         DC    X'F0F1F2F3F4F5F6F7F8F9FAFBFCFDFEFF'
+LINELEN  EQU   130            130 FOR VM/370; 256 FOR VM/SP OR Z/VM
+         SPACE
+         REGEQU
+         END

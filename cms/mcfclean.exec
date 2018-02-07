@@ -1,0 +1,229 @@
+&CONTROL OFF NOMSG
+ 
+*
+* flags to control script flow
+*
+&DOIT = 0
+&INTRO = FOUND:
+ 
+*
+* disks to be searched
+*
+&D1 = U
+&D2 = V
+&D3 = W
+&D4 = X
+&D5 = Y
+&D6 = Z
+ 
+*
+* check command line param for remove action
+*
+&IF .&1 NE .REMOVE &GOTO -NOPARM
+&DOIT = 1
+&INTRO = WHIPING:
+-NOPARM
+ 
+*
+* tell about us starting to work
+*
+&TYPE
+&TYPE MECAFF CLEANUP UTILITY
+&IF &DOIT EQ 0 &TYPE Mode: find MECAFF files
+&IF &DOIT EQ 1 &TYPE Mode: remove MECAFF files
+&TYPE Scanning disks: &D1 &D2 &D3 &D4 &D5 &D6 &D7 &D8
+&TYPE
+ 
+*
+* The following &BEGSTACK blocks build the list of files to
+* look for on the disks, grouped by MECAFF versions uploaded
+* to the H390-VM group.
+*
+ 
+** Files in 0.9.0
+*
+&BEGSTACK FIFO
+  EE       MODULE
+  FSLIST   MODULE
+  FSHELP   MODULE
+  FS-QRY   MODULE
+  SAMPLE   EE
+  SYSPROF  EE
+  FSIO     H
+  BOOL     H
+  FSIO     TEXT
+  WR3280   TEXT
+&END
+ 
+** New files in 0.9.1
+*
+&BEGSTACK FIFO
+  FSLIST   EXEC
+  FSVIEW   EXEC
+&END
+ 
+** New files in 0.9.3
+*
+&BEGSTACK FIFO
+  FS-CTL   MODULE
+  FSRDTEST C
+  FSRDTEST MODULE
+&END
+ 
+** New files in 0.9.5
+*
+&BEGSTACK  FIFO
+  CMSMIN   TEXT
+&END
+ 
+** New files in 0.9.6
+&BEGSTACK FIFO
+  _EE      HELP_EE
+  EE       HELPCMD
+  EE-CONFG HELPEE
+  EE-CUST  HELPEE
+  EE-EDIT  HELPEE
+  EE-FILES HELPEE
+  EE-MISC  HELPEE
+  EE-PREFX HELPEE
+  FS-CTL   HELPCMD
+  FSHELP   HELPCMD
+  FSLIST   HELPCMD
+  FS-QRY   HELPCMD
+  FSVIEW   HELPCMD
+&END
+ 
+** New files in 0.9.7
+* (CKMECAFF EXEC is not deleted)
+&BEGSTACK FIFO
+  MECAFF   SYNONYM
+&END
+ 
+** New files in 0.9.8
+* (sources for IND$FILE are not deleted)
+*
+&BEGSTACK FIFO
+  IND$FILE MODULE
+  EBCDIC   MEMO
+  VISTA    IND$MAP
+&END
+ 
+** New files in MECAFFTOOLS_ON_DIAG58 (first try)
+* (PUT3270/GET3270 are not deleted)
+*
+&BEGSTACK
+  EE58     MODULE
+  FSHELP58 MODULE
+  MECAFF58 SYNONYM
+  FSIO_X58 C
+  FSBLDX58 EXEC
+&END
+ 
+** New files in MECAFF-TOOLS-FOR-DIAG58-1.1.0
+*
+&BEGSTACK
+  EE5S     MODULE
+  FSHELP5S MODULE
+  IND$FI58 MODULE
+  IND$FI5S MODULE
+  MECAFF5S SYNONYM
+&END
+ 
+** New files in MECAFF-TOOLS-1.2.0
+*
+&BEGSTACK
+  EE$D     MODULE
+  EE$S     MODULE
+  FSHELP$D MODULE
+  FSHELP$S MODULE
+  IND$FILD MODULE
+  IND$FILS MODULE
+  FSQRY    MODULE
+  FSCTL    MODULE
+  MECAFF$S SYNONYM
+  MECAFF$D SYNONYM
+  CKFSTYPE EXEC
+  $EE      HELP$EE
+  EE$CONFG HELPEE
+  EE$CUST  HELPEE
+  EE$EDIT  HELPEE
+  EE$FILES HELPEE
+  EE$MISC  HELPEE
+  EE$PREFX HELPEE
+  FSCTL    HELPCMD
+  FSQRY    HELPCMD
+&END
+ 
+** New files in MECAFF-TOOLS-1.2.5
+*
+&BEGSTACK
+  XLIST    EXEC
+  XXLIST   EXEC
+&END
+ 
+*
+* our activity counters
+*
+&FOUND = 0
+&FOUNDRO = 0
+&ERASED = 0
+ 
+*
+* loop over the files to find
+*
+&LOOP -END &READFLAG = CONSOLE
+  &READ ARGS
+  *
+  * loop over the disks to be looked at
+  *
+  &I = 1
+  &LOOP -DISKS .&D&I EQ .
+ 
+    &DSK = &D&I
+ 
+    *
+    * check if the file is writable = removable
+    *
+    STATEW &1 &2 &DSK
+    &IF &RETCODE NE 0 &GOTO -TESTRO
+    &TYPE &INTRO &1 &2 &DSK
+    &FOUND = &FOUND + 1
+    &IF &DOIT NE 1 &GOTO -NXTDSK
+    ERASE &1 &2 &DSK
+    &IF &RETCODE EQ 0 &ERASED = &ERASED + 1
+    &GOTO -NXTDSK
+ 
+    *
+    * look if the file is present at all
+    *
+    -TESTRO
+    STATE &1 &2 &DSK
+    &IF &RETCODE NE 0 &GOTO -NXTDSK
+    &TYPE R/O: &1 &2 &DSK
+    &FOUNDRO = &FOUNDRO + 1
+    &GOTO -NXTDSK
+ 
+    *
+    * verify the next disk
+    *
+    -NXTDSK
+    &I = &I + 1
+  -DISKS
+-END
+ 
+*
+* end message output
+*
+&TOTAL = &FOUND + &FOUNDRO
+&IF &TOTAL EQ 0 &GOTO -NOMECFF
+&TYPE
+&TYPE MECAFF files count: TOTAL &TOTAL , READ ONLY: &FOUNDRO
+&IF &DOIT = 1 &TYPE ERASED files count: &ERASED
+&TYPE
+&EXIT 0
+*
+-NOMECFF
+&TYPE
+&TYPE MECAFF not found on disks: &D1 &D2 &D3 &D4 &D5 &D6 &D7 &D8
+&TYPE
+&EXIT 28

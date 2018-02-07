@@ -1,0 +1,218 @@
+*********************************************************************** WSF00010
+*                                                                     * WSF00020
+*  WSF Query Callable Routine                                         * WSF00020
+*                                                                     * WSF00020
+*  This routine will issue DIAG58 write structured field to obtain    * WSF00020
+*  the device information about the virtual console.  Applications    * WSF00020
+*  wishing to query device information could call this routine once   * WSF00020
+*  at application start up to obtain the data, before any full        * WSF00020
+*  screen activity commences in the application.                      * WS000020
+*                                                                     * WSF00020
+*  The caller should ensure that register 1 contains the address      * WSF00020
+*  of a fullword that contains the address of a 5 word output
+*  parameter area .  The DSECT describing this area is at the end of  * WSF00020
+*  this source.  This routine will fill the fields of the area        * WSF00020
+*  passed as described below.                                         * WSF00020
+*                                                                     * WSF00020
+*  Call sequence:                                                     * WSF00020
+*          LA    1,=A(PARMS)               R1->A(output PARMS)        * WSF00020
+*          L     R15,=V(WSFQRY)                                       * WSF00020
+*          BALR  R14,R15                                              * WSF00020
+*          LTR   R15,R15                   Errors?                    * WSF00020
+*          BNZ   ERROR                     Yes                        * WSF00020
+*                                                                     * WSF00020
+*    Word 0 - binary number of rows on the device display             * WSF00020
+*    Word 1 - binary number of columns on the device display          * WSF00020
+*    Word 2 - The last byte of this word contains flag bits that      * WSF00020
+*             indicate the availability of extended features:         * WSF00020
+*             X'01' - extended color available                        * WSF00020
+*             X'02' - extended highlighting available                 * WSF00020
+*                                                                     * WSF00020
+*             C callers can query the entire word 2 as an int and     * WSF00020
+*             obtain a numeric value, thus:                           * WSF00020
+*             0 - no extended features                                * WSF00020
+*             1 - extended color available                            * WSF00020
+*             2 - extended highlighting available                     * WSF00020
+*             3 - extended color and extended highlighting available  * WSF00020
+*                                                                     * WSF00020
+*    Word 3 - contains the address of the read partition query data   * WSF00020
+*    Word 4 - contains the length of the read partition query data    * WSF00020
+*                                                                     * WSF00020
+*    Upon exit from this routine there will be a return code in R15   * WSF00020
+*    as follows:                                                      * WSF00020
+*    R15 = 0  Normal completion, parm fields set as described.        * WSF00020
+*    R15 = 8  Bad or unexpected response data from WSF.               * WSF00020
+*    R15 = 12 I/O or bad completion status from the device.  Check    * WSF00020
+*             the CSW flags at low storage location 64  (x'40').      * WSF00020
+*                                                                     * WSF00020
+*********************************************************************** WSF00030
+*                                                                       WSF00040
+WSFQRY   CSECT                                                          WSF00050
+         REGEQU                                                         WSF00060
+         STM   R14,R12,12(R13)         Save regs                        WSF00070
+         LR    R12,R15                 Get base                         WSF00080
+         USING WSFQRY,R12                                               WSF00090
+         ST    R13,SA+4                Save prior save area addr        WSF00100
+         LA    R13,SA                  -> save area                     WSF00110
+         L     R10,0(,R1)              -> input parms                   WSF00120
+         USING PARMS,R10
+*                                                                       WSF00130
+         SSM   =X'00'                  Disable                          WSF00140
+*                                                                       WSF00150
+         XR    R6,R6                   Clear                            WSF00160
+         BCTR  R6,0                    Load with -1                     WSF00170
+         DIAG  R6,R8,X'24'             Get console device info          WSF00180
+*                                      R6 will contain vconsole CUU     WSF00190
+*                                                                       WSF00200
+         LA    R8,WSF                  -> Read partition query WSF CCW  WSF00210
+         DIAG  8,6,X'58'               Issue WSF                        WSF00220
+         BC    1,CSWSTRD1              Exit if error CSW stored         WSF00230
+*
+ATTNPEND EQU   *
+         TIO   0(R6)                   Test for completion              WSF00240
+         BC    1,CSWSTRD1              Exit if CSW stored               WSF00230
+         BC    7,ATTNPEND                                               WSF00250
+*                                                                       WSF00260
+CSWSTRD1 EQU   *                                                        WSF00270
+         MVC   CSW,64(0)               Save off the CSW                 WSF00280
+         CLI   CSW+4,X'80'
+         BE    RDQ
+         CLI   CSW+4,X'0C'             Good completion?                 WSF00290
+         BNE   EXIT12                  No, pass back error              WSF00300
+         B     ATTNPEND
+*                                                                       WSF00310
+* Issue read RPQ CCW                                                    WSF00320
+*
+RDQ      EQU   *                                                        WSF00340
+         LA    R8,READQ                READ THE WSF QUERY RESULTS       WSF00340
+         DIAG  8,6,X'58'               Issue read                       WSF00350
+         BC    1,CSWSTRD2              Exit if error CSW stored         WSF00360
+         TIO   0(R6)                   Test for completion              WSF00370
+         BC    7,*-4                                                    WSF00380
+*                                                                       WSF00390
+CSWSTRD2 EQU   *                                                        WSF00400
+         MVC   CSW,64(0)               Save off the CSW                 WSF00410
+         CLI   CSW+4,X'0C'             Good completion?                 WSF00420
+         BNE   EXIT12                  No, pass back error              WSF00430
+*                                                                       WSF00440
+CLRPEND  EQU   *
+*        TIO   0(R6)                   Clear WSF generated ATTN         WSF00370
+*        BC    7,*-4                                                    WSF00380
+*        TM    68(0),X'80'             Was this the ATTN?               WSF00330
+*        BZ    CLRPEND                 No, keep looking
+*
+         XC    EXTFLAGS,EXTFLAGS       Init parm area flags             WSF00450
+         LA    R3,RPQBUF               -> RPQ data area                 WSF00460
+         ST    R3,PTRRPQ               Save ptr in return parms         WSF00470
+         LH    R3,READQ+6              Get read length from CCW         WSF00480
+         SH    R3,CSW+6                Compute actual length read       WSF00490
+         ST    R3,RPQLEN               Save length in return parms      WSF00500
+*                                                                       WSF00510
+*-- Examine RPQ data buffer                                             WSF00520
+*                                                                       WSF00530
+         CLI   RPQBUF,X'88'            Is this a query response AID?    WSF00540
+         BNE   EXIT08                  No, bad response                 WSF00550
+*                                                                       WSF00560
+         BCTR  R3,0                    Reduce length of AID             WSF00570
+         SR    R4,R4                   Clear for IC                     WSF00580
+         LA    R2,RPQBUF+1             -> AID+1                         WSF00590
+*                                                                       WSF00600
+CHKIDS   EQU   *                                                        WSF00610
+         CLI   3(R2),X'81'             ID usable area?                  WSF00620
+         BE    USABLE                  Yes                              WSF00630
+         CLI   3(R2),X'87'             ID Highlite?                     WSF00640
+         BE    HILI                    Yes                              WSF00650
+         CLI   3(R2),X'86'             ID Color?                        WSF00660
+         BE    COLOR                   Yes                              WSF00670
+*                                                                       WSF00680
+NEXTID   EQU   *                       Get next ID field                WSF00690
+         ICM   R4,3,0(R2)              Load field length                WSF00700
+         SR    R3,R4                   Reduce remaining buffer len      WSF00710
+         BNP   EXIT00                  Exit when no length              WSF00720
+         AR    R2,R4                   -> next ID field                 WSF00730
+         B     CHKIDS                                                   WSF00740
+*                                                                       WSF00750
+USABLE   EQU   *                                                        WSF00760
+         SR    R5,R5                   Clear for ICM                    WSF00770
+         ICM   R5,3,8(R2)              Get # rows                       WSF00780
+         ST    R5,ROWS                 Save in parms                    WSF00790
+         ICM   R5,3,6(R2)              Get # columns                    WSF00800
+         ST    R5,COLS                 Save in parms                    WSF00810
+         B     NEXTID                                                   WSF00820
+*                                                                       WSF00830
+COLOR    EQU   *                                                        WSF00840
+         CLI   5(R2),X'08'             Do we have 8 color pairs?        WSF00850
+         BL    NEXTID                  No color  support.               WSF00860
+         CLC   8(14,R2),CPAIRS         Are all 7 supported?             WSF00870
+         BNE   NEXTID                  No, mono device                  WSF00880
+         OI    FLAGS,EXTCOLOR          Indicate color support           WSF00890
+         B     NEXTID                                                   WSF00900
+*                                                                       WSF00910
+HILI     EQU   *                                                        WSF00920
+         CLI   4(R2),X'04'             Check for all hilight pairs      WSF00930
+         BL    NEXTID                  Not enough                       WSF00940
+         CLC   7(6,R2),HPAIRS          Do we have the right pairs?      WSF00950
+         BNE   NEXTID                  No                               WSF00960
+         OI    FLAGS,EXTHILIT          Indicate ext hilighting          WSF00970
+         B     NEXTID                                                   WSF00980
+*                                                                       WSF00990
+EXIT00   EQU   *                       Normal exit without error        WSF01000
+         SR    R15,R15                                                  WSF01010
+         B     QUIT                                                     WSF01020
+*                                                                       WSF01030
+EXIT08   EQU   *                       Bad response from RPQ            WSF01040
+         LA    R15,8                                                    WSF01050
+         B     QUIT                                                     WSF01060
+*                                                                       WSF01070
+EXIT12   EQU   *                       Exit if not chan-end/dev-end CSW WSF01080
+         LA    R15,12                                                   WSF01090
+         B     QUIT                                                     WSF01100
+*                                                                       WSF01110
+QUIT     EQU   *                                                        WSF01120
+         SSM   =X'FF'                  Reenable                         WSF01130
+         L     R13,4(,R13)             -> prior save area               WSF01140
+         ST    R15,16(,R13)            Save RC in R15 in Savearea       WSF01150
+         LM    R14,R12,12(R13)         Restore regs                     WSF01160
+         BR    R14                     Return                           WSF01170
+*                                                                       WSF01180
+*                                                                       WSF01190
+SA       DS    9D                      Save area                        WSF01200
+CSW      DS    D                       Copy of CSW                      WSF01210
+*                                                                       WSF01220
+WSF      DC    X'29',AL3(RPQ),X'0020',AL2(7)   Write structured field   WSF01230
+READQ    DC    X'2A',AL3(RPQBUF),X'2080',H'512' Read modified           WSF01240
+*                                                                       WSF01250
+DEVINFO  DS    A(0,0,0)                                                 WSF01260
+*                                                                       WSF01270
+CPAIRS   DC    CL14'11223344556677'    Color pairs                      WSF01280
+HPAIRS   DC    CL6'112244'             Hilight pairs                    WSF01290
+*                                                                       WSF01300
+*                                                                       WSF01320
+RPQ      DC    X'000701FF038000'       Read partition query             WSF01330
+*                ----        XX ------> Query code for usable area      WSF01340
+*                LEN       XX---------> X'80'=all query codes           WSF01350
+*                        XX-----------> X'03'=Specific query code list  WSF01360
+*                      XX-------------> X'FF'=Query operation           WSF01370
+*                    XX---------------> X'01'=WSF                       WSF01380
+*                                                                       WSF01390
+*                                                                       WSF01400
+         DS    0D                                                       WSF01410
+         DC    CL8'RPQBUF'              EYECATCHER TO VIEW RPQ RESULT   WSF01420
+RPQBUF   DC    512X'00'                                                 WSF01430
+*                                                                       WSF01440
+PARMS    DSECT                                                          WSF01460
+ROWS     DS    F                         # rows on display              WSF01470
+COLS     DS    F                         # columns on display           WSF01480
+*                                                                       WSF01490
+EXTFLAGS DS    0F                        Extended flags                 WSF01500
+         DS    3X                         Not used, zero                WSF01510
+FLAGS    DS    X                          Extended features             WSF01520
+EXTCOLOR EQU   X'01'                       Extended color avail         WSF01530
+EXTHILIT EQU   X'02'                       Extended highlight avail     WSF01540
+*                                                                       WSF01550
+PTRRPQ   DS    A                         -> RPQ buffer                  WSF01560
+RPQLEN   DS    F                         Length of RPQ data in RPQ buf  WSF01570
+*                                                                       WSF01580
+PARMSZ   EQU   *-PARMS                   Size of parameter area         WSF01590
+*                                                                       WSF01600
+         END                                                            WSF01610

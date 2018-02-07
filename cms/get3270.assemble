@@ -1,0 +1,102 @@
+GET3270  TITLE 'READ FROM 327X ROUTINE'                                 GET00010
+GET3270  CSECT                                                          GET00020
+         REGEQU                                                         GET00030
+*      AT ENTRY R1 POINTS TO ADDRESS OF PARMS                           GET00040
+*                                                                       GET00050
+*      PARMS    DS    0F                                                GET00060
+*      BUFFADDR DS    A            ADDRESS OF INPUT BUFFER              GET00070
+*      BUFFLENA DS    A            ADDR OF 2-BYTE LEN OF INPUT BUFFER   GET00080
+*                                                                       GET00090
+*                                                                       GET00100
+         STM   R14,R12,12(R13)                                          GET00110
+         LR    R3,R15                                                   GET00120
+         USING GET3270,R3                                               GET00130
+         ST    R13,SA+4                                                 GET00140
+         LA    R13,SA                                                   GET00150
+*                                                                       GET00160
+         LM    R4,R5,0(R1)         LOAD PTRS TO INPUT PARMS             GET00170
+*                                   R4 -> INPUT BUFFER                  GET00180
+*                                   R5 -> INPUT BUFFER LEN (HALFWORD)   GET00190
+*---------------------------------------------------------------------  GET00200
+SETCCW   EQU   *                   SETUP THE READ CCW                   GET00210
+         STCM  R4,7,READCCW+1      PLUG BUFFER ADDR INTO CCW            GET00220
+         MVC   READCCW+6(2),0(R5)  MOVE BUFFER LEN TO CCW               GET00230
+*                                                                       GET00240
+*---------------------------------------------------------------------  GET00250
+WAIT1ST  EQU   *                                                        GET00260
+         LA    R1,=CL8'CONWAIT'    WAIT FOR CONSOLE I/O                 GET00270
+         SVC   202                                                      GET00280
+         DC    AL4(RETURN)                                              GET00290
+*---------------------------------------------------------------------  GET00300
+GETADDR  EQU   *                   GET CONSOLE ADDR                     GET00310
+         SR    R8,R8                                                    GET00320
+         BCTR  R8,R0                                                    GET00330
+         DIAG  8,10,X'24'                                               GET00340
+         STM   R8,R10,DVCINFO       SAVE DEVICE INFO                    GET00350
+*---------------------------------------------------------------------  GET00360
+SETINT   EQU   *            ESTABLISH RTN TO HANDLE ATTN INTERUPT       GET00370
+         STH   R8,HNDINT+24                                             GET00380
+         CNOP  0,4                                                      GET00390
+HNDINT   HNDINT SET,(TUBE,INTRPT,01F,ASAP)                              GET00400
+*--------------------------------------------------------------------   GET00410
+WAIT     EQU   *                WAIT FOR 'EM TO HIT ENTER               GET00420
+         WAITD TUBE                                                     GET00430
+*---------------------------------------------------------------------  GET00440
+READ     EQU   *       CLEAR INTERUPT ROUTINE                           GET00450
+         HNDINT CLR,(TUBE)                                              GET00460
+*                                                                       GET00470
+RETURN   EQU   *                                                        GET00480
+         LH    R1,READCCW+6         GET REQUESTED READ LENGTH           GET00490
+         SH    R1,CSW+6             LESS RESIDUAL COUNT IN CSW          GET00500
+         STH   R1,0(,R5)            STORE ACTUAL READ LEN IN CALLER'S   GET00510
+*                                    2-BYTE LENGTH AREA                 GET00520
+*                                                                       GET00530
+QUIT     EQU   *                                                        GET00540
+         L     R13,4(,R13)                                              GET00550
+         LM    R14,12,12(R13)                                           GET00560
+         XR    R15,R15                                                  GET00570
+         BR    R14                                                      GET00580
+SA       DS    9D                                                       GET00590
+*                                                                       GET00600
+*---------------------------------------------------------------------  GET00610
+INTRPT   EQU   *                                                        GET00620
+         USING INTRPT,15                                                GET00630
+         STM   0,15,INTSAVE                                             GET00640
+         USING INTRPT,3                                                 GET00650
+         LR    R3,R15                                                   GET00660
+         DROP  15                                                       GET00670
+         LA    R6,READCCW                                               GET00680
+         L     R8,DVCINFO                                               GET00690
+         DIAG  R6,R8,X'58'         NOW READ FROM THE SCREEN             GET00700
+TIO      TIO   0(R8)               WAIT FOR READ COMPLETE               GET00710
+         BC    7,TIO                                                    GET00720
+         MVC   CSW,64(0)           SAVE A COPY OF THE CSW               GET00730
+         LM    0,15,INTSAVE                                             GET00740
+         LA    15,0                                                     GET00750
+         BR    14                                                       GET00760
+*                                                                       GET00770
+INTSAVE  DC    16F'0'                                                   GET00780
+INT15    DC    F'0'                                                     GET00790
+REGSAVE  DC    F'0'                                                     GET00800
+*---------------------------------------------------------------------  GET00810
+CC0      EQU   8                                                        GET00820
+CC1      EQU   4                                                        GET00830
+CC2      EQU   2                                                        GET00840
+CC3      EQU   1                                                        GET00850
+*                                                                       GET00860
+         DS    0D                                                       GET00870
+READCCW  DC    X'2A',AL3(0),X'20',X'80',H'1920'                         GET00880
+CSW      DS    D                                                        GET00890
+*---------------------------------------------------------------------  GET00900
+DVCINFO  DC    3F'0'                                                    GET00910
+BLANKS   DC    20C' '                                                   GET00920
+*                                                                       GET00930
+*                                                                       GET00940
+*                                                                       GET00950
+*                                                                       GET00960
+PARMS    DSECT                                                          GET00970
+BUFFADDR DS    A                                                        GET00980
+BUFFLENA DS    A                                                        GET00990
+*                                                                       GET01000
+*                                                                       GET01010
+         END                                                            GET01020
